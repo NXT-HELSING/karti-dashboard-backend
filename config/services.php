@@ -35,4 +35,12 @@ return [
         ],
     ],
 
+    'karti' => [
+        'base_url' => env('KARTI_BASE_URL', 'https://stg.kartishop.xyz'),
+        'username' => env('KARTI_USERNAME'),
+        'password' => env('KARTI_PASSWORD'),
+        'op_id' => env('KARTI_OP_ID'),
+        'partner_id' => env('KARTI_PARTNER_ID'),
+    ],
+
 ];
