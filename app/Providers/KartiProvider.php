@@ -133,17 +133,15 @@ class KartiProvider implements CardProviderInterface
 
     /**
      * Get card details after successful PIN verification
-     * POST /KartiShop/cardDetails
+     * POST /KartiShop/CardDetails/en
      */
     public function getCardDetails(string $reserveId, string $partnerTxId): array
     {
-        $response = $this->request('POST', '/KartiShop/cardDetails', [
+        return $this->request('POST', '/KartiShop/CardDetails/en', [
             'opId' => (string)$this->opId,
-            'reservedID' => $reserveId,
             'partnerTransactionId' => $partnerTxId,
+            'reserveID' => $reserveId,
         ], true);
-        
-        return $response;
     }
 
     /**

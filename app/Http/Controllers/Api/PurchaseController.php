@@ -20,215 +20,104 @@ class PurchaseController extends Controller
     }
 
     /**
-     * Step 1: Reserve a card
+     * Purchase: Reserve and get card in one step
      */
-    public function reserve(Request $request)
+    public function purchase(Request $request)
     {
         $request->validate([
             'denomId' => 'required|integer',
             'brandId' => 'required|integer',
-            'userID' => 'required|string', // Phone number or user identifier
+            'userID' => 'required|string',
         ]);
 
         $user = $request->user();
         $partnerTransactionId = uniqid('txn_' . $user->id . '_');
 
+        // Step 1: Reserve
         try {
-            $response = $this->kartiProvider->reserveCard(
+            $reserveResponse = $this->kartiProvider->reserveCard(
                 $request->denomId,
                 $request->brandId,
                 $request->userID,
                 $partnerTransactionId
             );
+        } catch (\Exception $e) {
+            Log::error('Card reserve failed', ['error' => $e->getMessage()]);
+            return response()->json([
+                'error' => 'Reservation failed: ' . $e->getMessage()
+            ], 500);
+        }
 
-            // Check if reservation was successful
-            if (isset($response['errorCode']) && $response['errorCode'] !== '1000') {
-                return response()->json([
-                    'success' => false,
-                    'error' => $response['reserveStatus'] ?? 'Reservation failed',
-                    'errorCode' => $response['errorCode']
-                ], 400);
-            }
+        if (
+            !isset($reserveResponse['errorCode']) ||
+            $reserveResponse['errorCode'] !== '1000'
+        ) {
+            return response()->json(['error' => $reserveResponse['reserveStatus'] ?? 'Reservation failed'], 400);
+        }
 
-            // Create transaction record
+        // Step 2: Get card details
+        try {
+            $cardResponse = $this->kartiProvider->getCardDetails(
+                isset($reserveResponse['reserveId']) ? $reserveResponse['reserveId'] : ($reserveResponse['reserved'] ?? null),
+                $partnerTransactionId
+            );
+        } catch (\Exception $e) {
+            Log::error('Get card failed', ['error' => $e->getMessage()]);
+            return response()->json([
+                'error' => 'Failed to retrieve card: ' . $e->getMessage()
+            ], 500);
+        }
+
+        if (
+            !isset($cardResponse['errorCode']) ||
+            $cardResponse['errorCode'] !== '1000'
+        ) {
+            return response()->json(['error' => $cardResponse['resultDesc'] ?? 'Failed to retrieve card'], 400);
+        }
+
+        // Save transaction and card to database
+        try {
+            DB::beginTransaction();
+
             $transaction = Transaction::create([
                 'user_id' => $user->id,
                 'provider' => 'karti',
                 'denom_id' => $request->denomId,
                 'brand_id' => $request->brandId,
-                'amount_paid' => 0, // Will update after PIN verification
-                'currency' => $response['currency'] ?? 'USD',
-                'status' => 'pending',
-                'reserve_id' => $response['reserved'] ?? null,
+                'amount_paid' => $cardResponse['balance'] ?? 0,
+                'currency' => $cardResponse['currency'] ?? $reserveResponse['currency'] ?? 'USD',
+                'status' => 'completed',
+                'reserve_id' => isset($reserveResponse['reserveId']) ? $reserveResponse['reserveId'] : ($reserveResponse['reserved'] ?? null),
                 'partner_transaction_id' => $partnerTransactionId,
             ]);
 
-            return response()->json([
-                'success' => true,
-                'reserve_id' => $response['reserved'],
-                'transaction_id' => $transaction->id,
-                'balance' => $response['balance'] ?? null,
-                'currency' => $response['currency'] ?? 'USD',
-                'message' => 'Card reserved. Please enter the PIN sent to your phone.'
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Card reserve failed', ['error' => $e->getMessage()]);
-            return response()->json([
-                'success' => false,
-                'error' => 'Failed to reserve card: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Step 2: Verify PIN and complete purchase
-     */
-    public function verify(Request $request)
-    {
-        $request->validate([
-            'reserve_id' => 'required|string',
-            'pin' => 'required|string',
-        ]);
-
-        $user = $request->user();
-
-        // Find the transaction
-        $transaction = Transaction::where('reserve_id', $request->reserve_id)
-            ->where('user_id', $user->id)
-            ->first();
-
-        if (!$transaction) {
-            return response()->json([
-                'success' => false,
-                'error' => 'Transaction not found'
-            ], 404);
-        }
-
-        if ($transaction->status !== 'pending') {
-            return response()->json([
-                'success' => false,
-                'error' => 'Transaction already processed'
-            ], 400);
-        }
-
-        try {
-            $response = $this->kartiProvider->confirmPin($request->reserve_id, $request->pin);
-
-            // Check if PIN verification was successful (219 = success)
-            $isSuccess = isset($response['transactionStatus']) && $response['transactionStatus'] === '219';
-
-            if (!$isSuccess) {
-                return response()->json([
-                    'success' => false,
-                    'error' => $response['transactionDesc'] ?? 'PIN verification failed',
-                    'errorCode' => $response['transactionStatus'] ?? 'unknown'
-                ], 400);
-            }
-
-            // Update transaction status
-            $transaction->status = 'completed';
-            $transaction->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'PIN verified successfully. You can now retrieve your card.',
-                'reserve_id' => $request->reserve_id
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('PIN verification failed', ['error' => $e->getMessage()]);
-            return response()->json([
-                'success' => false,
-                'error' => 'PIN verification failed: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Step 3: Get card details after successful verification
-     */
-    public function getCard(Request $request, $reserveId)
-    {
-        $user = $request->user();
-
-        $transaction = Transaction::where('reserve_id', $reserveId)
-            ->where('user_id', $user->id)
-            ->first();
-
-        if (!$transaction) {
-            return response()->json([
-                'success' => false,
-                'error' => 'Transaction not found'
-            ], 404);
-        }
-
-        if ($transaction->status !== 'completed') {
-            return response()->json([
-                'success' => false,
-                'error' => 'Card not ready. Complete PIN verification first.'
-            ], 400);
-        }
-
-        // Check if card already retrieved
-        $existingCard = PurchasedCard::where('transaction_id', $transaction->id)->first();
-        if ($existingCard) {
-            return response()->json([
-                'success' => true,
-                'card' => [
-                    'code' => $existingCard->card_code,
-                    'serial' => $existingCard->serial,
-                    'face_value' => $existingCard->face_value,
-                    'currency' => $existingCard->currency,
-                    'expiry_date' => $existingCard->expiry_date,
-                ]
-            ]);
-        }
-
-        try {
-            $response = $this->kartiProvider->getCardDetails($reserveId, $transaction->partner_transaction_id);
-
-            if (isset($response['errorCode']) && $response['errorCode'] !== '1000') {
-                return response()->json([
-                    'success' => false,
-                    'error' => $response['resultDesc'] ?? 'Failed to retrieve card'
-                ], 400);
-            }
-
-            // Save purchased card
             $purchasedCard = PurchasedCard::create([
                 'transaction_id' => $transaction->id,
-                'card_code' => $response['cardCode'] ?? '',
-                'serial' => $response['serial'] ?? null,
-                'face_value' => $response['cardFaceValue'] ?? '',
-                'currency' => $response['cardDenomVal'] ?? '',
-                'expiry_date' => $response['expireDate'] ?? null,
+                'card_code' => $cardResponse['cardCode'] ?? '',
+                'serial' => $cardResponse['serial'] ?? null,
+                'face_value' => $cardResponse['cardFaceValue'] ?? '',
+                'currency' => $cardResponse['cardDenomVal'] ?? '',
+                'expiry_date' => $cardResponse['expireDate'] ?? null,
             ]);
 
-            // Update transaction with amount
-            $transaction->amount_paid = $response['balance'] ?? 0;
-            $transaction->save();
-
-            return response()->json([
-                'success' => true,
-                'card' => [
-                    'code' => $purchasedCard->card_code,
-                    'serial' => $purchasedCard->serial,
-                    'face_value' => $purchasedCard->face_value,
-                    'currency' => $purchasedCard->currency,
-                    'expiry_date' => $purchasedCard->expiry_date,
-                ],
-                'balance_remaining' => $response['balance'] ?? null,
-                'currency' => $response['currency'] ?? 'USD'
-            ]);
-
+            DB::commit();
         } catch (\Exception $e) {
-            Log::error('Get card failed', ['error' => $e->getMessage()]);
+            DB::rollBack();
+            Log::error('Failed to save purchase or card', ['error' => $e->getMessage()]);
             return response()->json([
-                'success' => false,
-                'error' => 'Failed to retrieve card: ' . $e->getMessage()
+                'error' => 'Failed to save purchase: ' . $e->getMessage()
             ], 500);
         }
+
+        return response()->json([
+            'success' => true,
+            'card' => [
+                'code' => $cardResponse['cardCode'] ?? '',
+                'serial' => $cardResponse['serial'] ?? null,
+                'face_value' => $cardResponse['cardFaceValue'] ?? '',
+                'expiry_date' => $cardResponse['expireDate'] ?? null,
+            ]
+        ]);
     }
 
     /**
