@@ -3,33 +3,28 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\Providers\KartiProvider;
 use Illuminate\Http\Request;
 
 class BrandController extends Controller
 {
+    protected $kartiProvider;
+
+    public function __construct(KartiProvider $kartiProvider)
+    {
+        $this->kartiProvider = $kartiProvider;
+    }
+
     public function index()
     {
-        $brands = [
-            [
-                'brandId' => '3',
-                'brandName' => 'Google Play',
-                'storeName' => 'US',
-                'brandDesc' => 'Google Play Card for US Account'
-            ],
-            [
-                'brandId' => '4',
-                'brandName' => 'PlayStation',
-                'storeName' => 'US',
-                'brandDesc' => 'Play Station Network Card'
-            ],
-            [
-                'brandId' => '5',
-                'brandName' => 'Xbox Live',
-                'storeName' => 'US',
-                'brandDesc' => 'Xbox Live Card'
-            ],
-        ];
-
-        return response()->json($brands);
+        try {
+            $brands = $this->kartiProvider->getBrands();
+            return response()->json($brands);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to fetch brands',
+                'message' => $e->getMessage()
+            ], 500);
+        }
     }
 }

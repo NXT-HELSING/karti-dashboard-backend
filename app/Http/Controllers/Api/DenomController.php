@@ -18,22 +18,16 @@ class DenomController extends Controller
     public function index($brandId)
     {
         try {
-            $response = $this->kartiProvider->getDenoms((int)$brandId);
+            $denoms = $this->kartiProvider->getDenoms((int)$brandId);
 
-            // If Karti returns error code 1007 (no denoms available)
-            if (isset($response['errorCode']) && $response['errorCode'] === 1007) {
+            // Check if Karti returned error code 1007 (no denoms)
+            if (isset($denoms['errorCode']) && $denoms['errorCode'] === 1007) {
                 return response()->json([
                     'message' => 'No denominations available for this brand'
                 ], 404);
             }
 
-            // If response is an array of denoms, return it directly
-            if (is_array($response) && !isset($response['errorCode'])) {
-                return response()->json($response);
-            }
-
-            // Fallback
-            return response()->json($response);
+            return response()->json($denoms);
 
         } catch (\Exception $e) {
             return response()->json([

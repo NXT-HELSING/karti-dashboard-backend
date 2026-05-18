@@ -35,6 +35,7 @@ return [
         ],
     ],
 
+    // Karti configuration
     'karti' => [
         'base_url' => env('KARTI_BASE_URL', 'https://stg.kartishop.xyz'),
         'username' => env('KARTI_USERNAME'),
