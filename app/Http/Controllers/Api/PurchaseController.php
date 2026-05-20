@@ -56,9 +56,11 @@ class PurchaseController extends Controller
         }
 
         // Step 2: Get card details
+        $reserveId = $reserveResponse['reserveID'] ?? $reserveResponse['reserveId'] ?? $reserveResponse['reserved'] ?? null;
+
         try {
             $cardResponse = $this->kartiProvider->getCardDetails(
-                isset($reserveResponse['reserveId']) ? $reserveResponse['reserveId'] : ($reserveResponse['reserved'] ?? null),
+                $reserveId,
                 $partnerTransactionId
             );
         } catch (\Exception $e) {
@@ -87,7 +89,7 @@ class PurchaseController extends Controller
                 'amount_paid' => $cardResponse['balance'] ?? 0,
                 'currency' => $cardResponse['currency'] ?? $reserveResponse['currency'] ?? 'USD',
                 'status' => 'completed',
-                'reserve_id' => isset($reserveResponse['reserveId']) ? $reserveResponse['reserveId'] : ($reserveResponse['reserved'] ?? null),
+                'reserve_id' => $reserveId,
                 'partner_transaction_id' => $partnerTransactionId,
             ]);
 
