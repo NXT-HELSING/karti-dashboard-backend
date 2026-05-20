@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
-use App\Models\PurchasedCard;
+use App\Models\CustomerPurchase;
+use App\Models\Denomination;
+use App\Models\BalanceHistory;
 use App\Services\Providers\KartiProvider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -19,124 +21,144 @@ class PurchaseController extends Controller
         $this->kartiProvider = $kartiProvider;
     }
 
-    /**
-     * Purchase: Reserve and get card in one step
-     */
+    // Get customer purchase history
+    public function history(Request $request)
+    {
+        $user = $request->user();
+        
+        $purchases = CustomerPurchase::with(['denomination.brand', 'transaction'])
+            ->where('user_id', $user->id)
+            ->orderBy('created_at', 'desc')
+            ->paginate(20);
+        
+        return response()->json([
+            'success' => true,
+            'data' => $purchases
+        ]);
+    }
+
+    // Get customer balance
+    public function balance(Request $request)
+    {
+        $user = $request->user();
+        
+        $balances = BalanceHistory::where('user_id', $user->id)
+            ->select('currency', DB::raw('SUM(CASE WHEN type = "credit" THEN amount ELSE -amount END) as balance'))
+            ->groupBy('currency')
+            ->get();
+        
+        return response()->json([
+            'success' => true,
+            'data' => $balances
+        ]);
+    }
+
+    // Purchase card
     public function purchase(Request $request)
     {
         $request->validate([
-            'denomId' => 'required|integer',
-            'brandId' => 'required|integer',
+            'denomination_id' => 'required|exists:denominations,id',
             'userID' => 'required|string',
         ]);
 
         $user = $request->user();
+        $denomination = Denomination::findOrFail($request->denomination_id);
+        
+        // Check if denomination is available
+        if (!$denomination->is_available) {
+            return response()->json([
+                'error' => 'This product is currently unavailable'
+            ], 400);
+        }
+        
+        // Check stock
+        if ($denomination->stock_quantity > 0 && $denomination->stock_quantity <= 0) {
+            return response()->json([
+                'error' => 'Out of stock'
+            ], 400);
+        }
+        
         $partnerTransactionId = uniqid('txn_' . $user->id . '_');
-
-        // Step 1: Reserve
+        
+        DB::beginTransaction();
+        
         try {
+            // Step 1: Reserve card from Karti
             $reserveResponse = $this->kartiProvider->reserveCard(
-                $request->denomId,
-                $request->brandId,
+                $denomination->provider_denom_id,
+                $denomination->brand->id,
                 $request->userID,
                 $partnerTransactionId
             );
-        } catch (\Exception $e) {
-            Log::error('Card reserve failed', ['error' => $e->getMessage()]);
-            return response()->json([
-                'error' => 'Reservation failed: ' . $e->getMessage()
-            ], 500);
-        }
-
-        if (
-            !isset($reserveResponse['errorCode']) ||
-            $reserveResponse['errorCode'] !== '1000'
-        ) {
-            return response()->json(['error' => $reserveResponse['reserveStatus'] ?? 'Reservation failed'], 400);
-        }
-
-        // Step 2: Get card details
-        $reserveId = $reserveResponse['reserveID'] ?? $reserveResponse['reserveId'] ?? $reserveResponse['reserved'] ?? null;
-
-        try {
-            $cardResponse = $this->kartiProvider->getCardDetails(
-                $reserveId,
-                $partnerTransactionId
-            );
-        } catch (\Exception $e) {
-            Log::error('Get card failed', ['error' => $e->getMessage()]);
-            return response()->json([
-                'error' => 'Failed to retrieve card: ' . $e->getMessage()
-            ], 500);
-        }
-
-        if (
-            !isset($cardResponse['errorCode']) ||
-            $cardResponse['errorCode'] !== '1000'
-        ) {
-            return response()->json(['error' => $cardResponse['resultDesc'] ?? 'Failed to retrieve card'], 400);
-        }
-
-        // Save transaction and card to database
-        try {
-            DB::beginTransaction();
-
+            
+            if (!isset($reserveResponse['errorCode']) || $reserveResponse['errorCode'] !== '1000') {
+                throw new \Exception($reserveResponse['erroreDesc'] ?? 'Reservation failed');
+            }
+            
+            // Step 2: Get card details
+            $reserveId = $reserveResponse['reserveID'] ?? $reserveResponse['reserveId'];
+            $cardResponse = $this->kartiProvider->getCardDetails($reserveId, $partnerTransactionId);
+            
+            if (!isset($cardResponse['errorCode']) || $cardResponse['errorCode'] !== '1000') {
+                throw new \Exception($cardResponse['resultDesc'] ?? 'Failed to get card');
+            }
+            
+            // Step 3: Save to database
             $transaction = Transaction::create([
                 'user_id' => $user->id,
                 'provider' => 'karti',
-                'denom_id' => $request->denomId,
-                'brand_id' => $request->brandId,
-                'amount_paid' => $cardResponse['balance'] ?? 0,
-                'currency' => $cardResponse['currency'] ?? $reserveResponse['currency'] ?? 'USD',
+                'denom_id' => $denomination->provider_denom_id,
+                'brand_id' => $denomination->brand_id,
+                'amount_paid' => $denomination->price,
+                'currency' => $denomination->currency,
                 'status' => 'completed',
                 'reserve_id' => $reserveId,
                 'partner_transaction_id' => $partnerTransactionId,
             ]);
-
-            $purchasedCard = PurchasedCard::create([
+            
+            $purchase = CustomerPurchase::create([
+                'user_id' => $user->id,
                 'transaction_id' => $transaction->id,
+                'denomination_id' => $denomination->id,
                 'card_code' => $cardResponse['cardCode'] ?? '',
-                'serial' => $cardResponse['serial'] ?? null,
+                'serial_number' => $cardResponse['serial'] ?? null,
                 'face_value' => $cardResponse['cardFaceValue'] ?? '',
-                'currency' => $cardResponse['cardDenomVal'] ?? '',
+                'currency' => $denomination->currency,
                 'expiry_date' => $cardResponse['expireDate'] ?? null,
+                'status' => 'completed',
+                'provider_response' => json_encode($cardResponse),
             ]);
-
+            
+            // Decrease stock if tracking
+            if ($denomination->stock_quantity > 0) {
+                $denomination->decrement('stock_quantity');
+            }
+            
             DB::commit();
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'card_code' => $purchase->card_code,
+                    'serial' => $purchase->serial_number,
+                    'face_value' => $purchase->face_value,
+                    'expiry_date' => $purchase->expiry_date,
+                    'brand' => $denomination->brand->name,
+                    'product' => $denomination->name,
+                ]
+            ]);
+            
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Failed to save purchase or card', ['error' => $e->getMessage()]);
+            Log::error('Purchase failed', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+                'denomination_id' => $denomination->id
+            ]);
+            
             return response()->json([
-                'error' => 'Failed to save purchase: ' . $e->getMessage()
+                'error' => 'Purchase failed: ' . $e->getMessage()
             ], 500);
         }
-
-        return response()->json([
-            'success' => true,
-            'card' => [
-                'code' => $cardResponse['cardCode'] ?? '',
-                'serial' => $cardResponse['serial'] ?? null,
-                'face_value' => $cardResponse['cardFaceValue'] ?? '',
-                'expiry_date' => $cardResponse['expireDate'] ?? null,
-            ]
-        ]);
-    }
-
-    /**
-     * Get purchase history for the authenticated user
-     */
-    public function history(Request $request)
-    {
-        $user = $request->user();
-
-        $transactions = Transaction::where('user_id', $user->id)
-            ->with('purchasedCard')
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        return response()->json([
-            'success' => true,
-            'transactions' => $transactions
-        ]);
     }
 }
