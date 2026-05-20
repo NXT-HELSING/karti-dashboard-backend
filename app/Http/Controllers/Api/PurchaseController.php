@@ -85,6 +85,31 @@ class PurchaseController extends Controller
                 'error' => 'Insufficient local balance. Your balance is ' . $denomination->currency . ' ' . number_format($user->balance, 2) . '. Price is ' . $denomination->currency . ' ' . number_format($denomination->price, 2) . '. Please top up.'
             ], 400);
         }
+
+        // Pre-check Karti API balance (Merchant master account balance)
+        try {
+            $kartiBalances = $this->kartiProvider->getBalance();
+            $usdBalance = 0.0;
+            if (is_array($kartiBalances)) {
+                foreach ($kartiBalances as $kb) {
+                    if (isset($kb['currency']) && strtoupper($kb['currency']) === 'USD') {
+                        $usdBalance = (float)($kb['balance'] ?? 0.0);
+                        break;
+                    }
+                }
+            }
+            
+            if ($usdBalance < $denomination->price) {
+                return response()->json([
+                    'error' => "Temporary provider outage: Insufficient master balance on provider account (Available: \${$usdBalance} USD, Card: \${$denomination->price} USD). Please contact the administrator to recharge."
+                ], 400);
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to pre-check Karti balance: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Failed to verify provider availability: ' . $e->getMessage()
+            ], 500);
+        }
         
         $partnerTransactionId = uniqid('txn_' . $user->id . '_');
         
