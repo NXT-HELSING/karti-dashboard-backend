@@ -93,7 +93,7 @@ class PurchaseController extends Controller
             // Step 1: Reserve card from Karti
             $reserveResponse = $this->kartiProvider->reserveCard(
                 $denomination->provider_denom_id,
-                $denomination->brand->id,
+                $denomination->brand->getApiBrandId(),
                 $request->userID,
                 $partnerTransactionId
             );

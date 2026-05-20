@@ -68,7 +68,7 @@ class InventoryController extends Controller
         $brand = Brand::findOrFail($request->brand_id);
         
         try {
-            $apiDenoms = $this->kartiProvider->getDenoms($brand->id);
+            $apiDenoms = $this->kartiProvider->getDenoms($brand->getApiBrandId());
             
             foreach ($apiDenoms as $apiDenom) {
                 Denomination::updateOrCreate(

@@ -22,4 +22,12 @@ class Brand extends Model
     {
         return $query->where('is_active', true);
     }
+    
+    public function getApiBrandId()
+    {
+        if (is_array($this->api_config) && isset($this->api_config['brand_id'])) {
+            return (int)$this->api_config['brand_id'];
+        }
+        return (int)$this->id;
+    }
 }

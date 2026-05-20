@@ -33,9 +33,18 @@ class BrandController extends Controller
             'code' => 'required|string|unique:brands,code',
             'description' => 'nullable|string',
             'logo_url' => 'nullable|url',
+            'api_brand_id' => 'nullable|integer',
         ]);
         
-        $brand = Brand::create($request->all());
+        $brand = Brand::create([
+            'name' => $request->name,
+            'code' => $request->code,
+            'description' => $request->description,
+            'logo_url' => $request->logo_url,
+            'api_config' => $request->api_brand_id ? ['brand_id' => (int)$request->api_brand_id] : null,
+            'is_active' => true,
+            'sort_order' => Brand::max('sort_order') + 1,
+        ]);
         
         return response()->json([
             'success' => true,
@@ -54,14 +63,36 @@ class BrandController extends Controller
             'logo_url' => 'nullable|url',
             'is_active' => 'sometimes|boolean',
             'sort_order' => 'sometimes|integer',
+            'api_brand_id' => 'nullable|integer',
         ]);
         
-        $brand->update($request->all());
+        if ($request->has('api_brand_id')) {
+            $apiConfig = $brand->api_config ?? [];
+            if ($request->api_brand_id !== null) {
+                $apiConfig['brand_id'] = (int)$request->api_brand_id;
+            } else {
+                unset($apiConfig['brand_id']);
+            }
+            $brand->api_config = $apiConfig;
+        }
+        
+        $brand->update($request->only(['name', 'description', 'logo_url', 'is_active', 'sort_order']));
         
         return response()->json([
             'success' => true,
             'message' => 'Brand updated successfully',
             'data' => $brand
+        ]);
+    }
+
+    public function destroy($id)
+    {
+        $brand = Brand::findOrFail($id);
+        $brand->delete();
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Brand deleted successfully'
         ]);
     }
 
