@@ -51,5 +51,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/brands', [AdminBrandController::class, 'index']);
         Route::post('/brands', [AdminBrandController::class, 'store']);
         Route::put('/brands/{id}', [AdminBrandController::class, 'update']);
+        Route::post('/brands/sync', [AdminBrandController::class, 'syncFromProvider']);
     });
 });

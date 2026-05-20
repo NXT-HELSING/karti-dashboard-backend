@@ -62,7 +62,7 @@ class PurchaseController extends Controller
         ]);
 
         $user = $request->user();
-        $denomination = Denomination::findOrFail($request->denomination_id);
+        $denomination = Denomination::with('brand')->findOrFail($request->denomination_id);
         
         // Check if denomination is available
         if (!$denomination->is_available) {
@@ -72,9 +72,16 @@ class PurchaseController extends Controller
         }
         
         // Check stock
-        if ($denomination->stock_quantity > 0 && $denomination->stock_quantity <= 0) {
+        if ($denomination->stock_quantity === 0) {
             return response()->json([
                 'error' => 'Out of stock'
+            ], 400);
+        }
+
+        // Check if customer has enough local balance
+        if ($user->balance < $denomination->price) {
+            return response()->json([
+                'error' => 'Insufficient local balance. Your balance is ' . $denomination->currency . ' ' . number_format($user->balance, 2) . '. Price is ' . $denomination->currency . ' ' . number_format($denomination->price, 2) . '. Please top up.'
             ], 400);
         }
         
@@ -103,7 +110,7 @@ class PurchaseController extends Controller
                 throw new \Exception($cardResponse['resultDesc'] ?? 'Failed to get card');
             }
             
-            // Step 3: Save to database
+            // Step 3: Save transaction
             $transaction = Transaction::create([
                 'user_id' => $user->id,
                 'provider' => 'karti',
@@ -129,6 +136,19 @@ class PurchaseController extends Controller
                 'provider_response' => json_encode($cardResponse),
             ]);
             
+            // Deduct local balance
+            $user->decrement('balance', $denomination->price);
+
+            // Record balance history debit
+            BalanceHistory::create([
+                'user_id' => $user->id,
+                'amount' => $denomination->price,
+                'currency' => $denomination->currency,
+                'type' => 'debit',
+                'description' => 'Purchased ' . $denomination->brand->name . ' - ' . $denomination->name,
+                'transaction_id' => $transaction->id,
+            ]);
+
             // Decrease stock if tracking
             if ($denomination->stock_quantity > 0) {
                 $denomination->decrement('stock_quantity');

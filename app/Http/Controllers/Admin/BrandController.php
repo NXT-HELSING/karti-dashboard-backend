@@ -4,10 +4,18 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Brand;
+use App\Services\Providers\KartiProvider;
 use Illuminate\Http\Request;
 
 class BrandController extends Controller
 {
+    protected $kartiProvider;
+
+    public function __construct(KartiProvider $kartiProvider)
+    {
+        $this->kartiProvider = $kartiProvider;
+    }
+
     public function index()
     {
         $brands = Brand::orderBy('sort_order')->get();
@@ -55,5 +63,47 @@ class BrandController extends Controller
             'message' => 'Brand updated successfully',
             'data' => $brand
         ]);
+    }
+
+    public function syncFromProvider()
+    {
+        try {
+            $apiBrands = $this->kartiProvider->getBrands();
+            
+            $syncedCount = 0;
+            foreach ($apiBrands as $apiBrand) {
+                $brandId = $apiBrand['brandId'] ?? $apiBrand['brand_id'] ?? null;
+                $brandName = $apiBrand['brandName'] ?? $apiBrand['brand_name'] ?? $apiBrand['name'] ?? null;
+                $logoUrl = $apiBrand['brandImage'] ?? $apiBrand['logo_url'] ?? $apiBrand['logo'] ?? null;
+                $brandDesc = $apiBrand['brandDesc'] ?? $apiBrand['description'] ?? null;
+                
+                if (!$brandId) continue;
+                
+                Brand::updateOrCreate(
+                    ['id' => $brandId],
+                    [
+                        'name' => $brandName ?: 'Brand ' . $brandId,
+                        'code' => $apiBrand['brandCode'] ?? $apiBrand['code'] ?? ('BRAND_' . $brandId),
+                        'logo_url' => $logoUrl,
+                        'description' => $brandDesc,
+                        'is_active' => true
+                    ]
+                );
+                
+                $syncedCount++;
+            }
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Brands synced successfully from Karti provider',
+                'synced_count' => $syncedCount
+            ]);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Failed to sync brands: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }
