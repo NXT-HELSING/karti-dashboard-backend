@@ -58,10 +58,11 @@ class PurchaseController extends Controller
     {
         $request->validate([
             'denomination_id' => 'required|exists:denominations,id',
-            'userID' => 'required|string',
+            'userID' => 'nullable|string',
         ]);
 
         $user = $request->user();
+        $userID = $request->userID ?: $user->email ?: $user->phone ?: $user->name ?: 'customer';
         $denomination = Denomination::with('brand')->findOrFail($request->denomination_id);
         
         // Check if denomination is available
@@ -94,7 +95,7 @@ class PurchaseController extends Controller
             $reserveResponse = $this->kartiProvider->reserveCard(
                 $denomination->provider_denom_id,
                 $denomination->brand->getApiBrandId(),
-                $request->userID,
+                $userID,
                 $partnerTransactionId
             );
             
