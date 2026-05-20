@@ -1,24 +1,26 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\BrandController;
+use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BrandController as ApiBrandController;
 use App\Http\Controllers\Api\DenominationController;
 use App\Http\Controllers\Api\PurchaseController;
-use App\Http\Controllers\Api\CustomerController;
-use App\Http\Controllers\Admin\StatisticsController;
-use App\Http\Controllers\Admin\CustomerController as AdminCustomerController;
+use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\InventoryController;
+use App\Http\Controllers\Admin\BrandController as AdminBrandController;
+use App\Http\Controllers\Admin\ReportController;
 
 // Public routes
-Route::post('/register', [App\Http\Controllers\Api\AuthController::class, 'register']);
-Route::post('/login', [App\Http\Controllers\Api\AuthController::class, 'login']);
+Route::post('/register', [AuthController::class, 'register']);
+Route::post('/login', [AuthController::class, 'login']);
 
-// Protected routes (require authentication)
+// Protected routes
 Route::middleware('auth:sanctum')->group(function () {
     
     // Customer routes
-    Route::get('/user/profile', [App\Http\Controllers\Api\UserController::class, 'profile']);
-    Route::put('/user/profile', [App\Http\Controllers\Api\UserController::class, 'updateProfile']);
+    Route::get('/user/profile', [AuthController::class, 'profile']);
+    Route::put('/user/profile', [AuthController::class, 'updateProfile']);
     
     // Purchase routes
     Route::get('/purchase/history', [PurchaseController::class, 'history']);
@@ -26,19 +28,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/purchase', [PurchaseController::class, 'purchase']);
     
     // Product routes (dynamic)
-    Route::get('/brands', [BrandController::class, 'index']);
+    Route::get('/brands', [ApiBrandController::class, 'index']);
     Route::get('/brands/{brandId}/denominations', [DenominationController::class, 'index']);
     
-    // Admin routes (with admin middleware)
+    // Admin routes
     Route::middleware('admin')->prefix('admin')->group(function () {
-        // Dashboard & Statistics
-        Route::get('/dashboard', [StatisticsController::class, 'overview']);
-        Route::get('/top-customers', [StatisticsController::class, 'topCustomers']);
+        // Dashboard
+        Route::get('/dashboard', [DashboardController::class, 'overview']);
         
         // Customer management
-        Route::get('/customers', [AdminCustomerController::class, 'index']);
-        Route::get('/customers/{id}', [AdminCustomerController::class, 'show']);
-        Route::put('/customers/{id}/status', [AdminCustomerController::class, 'updateStatus']);
+        Route::get('/customers', [CustomerController::class, 'index']);
+        Route::get('/customers/{id}', [CustomerController::class, 'show']);
+        Route::put('/customers/{id}/status', [CustomerController::class, 'updateStatus']);
+        Route::post('/customers/{id}/balance', [CustomerController::class, 'addBalance']);
         
         // Inventory management
         Route::get('/inventory', [InventoryController::class, 'index']);
@@ -46,12 +48,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/inventory/sync', [InventoryController::class, 'syncFromProvider']);
         
         // Brand management
-        Route::post('/brands/sync', [BrandController::class, 'syncBrands']);
-        Route::put('/brands/{id}', [BrandController::class, 'update']);
-        Route::post('/brands', [BrandController::class, 'store']);
-        
-        // Reports
-        Route::get('/reports/sales', [StatisticsController::class, 'salesReport']);
-        Route::get('/reports/customers', [StatisticsController::class, 'customerReport']);
+        Route::get('/brands', [AdminBrandController::class, 'index']);
+        Route::post('/brands', [AdminBrandController::class, 'store']);
+        Route::put('/brands/{id}', [AdminBrandController::class, 'update']);
     });
 });

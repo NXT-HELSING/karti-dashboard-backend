@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Brand extends Model
 {
-    protected $fillable = ['name', 'code', 'logo_url', 'description', 'is_active', 'api_config'];
+    protected $fillable = ['name', 'code', 'logo_url', 'description', 'is_active', 'sort_order', 'api_config'];
     
     protected $casts = [
         'api_config' => 'array',
@@ -18,8 +18,8 @@ class Brand extends Model
         return $this->hasMany(Denomination::class);
     }
     
-    public function purchases()
+    public function scopeActive($query)
     {
-        return $this->hasManyThrough(CustomerPurchase::class, Denomination::class);
+        return $query->where('is_active', true);
     }
 }
