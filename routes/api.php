@@ -52,6 +52,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/brands', [AdminBrandController::class, 'store']);
         Route::put('/brands/{id}', [AdminBrandController::class, 'update']);
         Route::delete('/brands/{id}', [AdminBrandController::class, 'destroy']);
-        Route::post('/brands/sync', [AdminBrandController::class, 'syncFromProvider']);
+        Route::post('/brands/sync', [AdminBrandController::class, 'syncFromKarti']);
     });
 });

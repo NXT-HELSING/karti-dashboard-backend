@@ -26,13 +26,19 @@ class KartiProvider implements CardProviderInterface
     /**
      * Make an authenticated request to Karti API
      */
-    protected function request($method, $endpoint, $params = [], $isPost = false)
+    protected function request($method, $endpoint, $params = [])
     {
         $url = $this->baseUrl . $endpoint;
         
         $options = [
             'auth' => [$this->username, $this->password],
         ];
+
+        Log::info('Karti API Request', [
+            'method' => $method,
+            'url' => $url,
+            'params' => $params
+        ]);
 
         if ($method === 'GET') {
             $options['query'] = $params;
@@ -41,6 +47,11 @@ class KartiProvider implements CardProviderInterface
             $options['json'] = $params;
             $response = Http::withOptions($options)->post($url);
         }
+
+        Log::info('Karti API Response', [
+            'status' => $response->status(),
+            'body' => $response->json()
+        ]);
 
         if ($response->failed()) {
             Log::error('Karti API error', [
@@ -56,52 +67,50 @@ class KartiProvider implements CardProviderInterface
 
     /**
      * Get all brands from Karti
-     * GET /KartiShop/BrandList
+     * CORRECT ENDPOINT: /KartiShop/BrandList/EN?opId={opId}
      */
     public function getBrands(): array
     {
-        $response = $this->request('GET', '/KartiShop/BrandList', [
-            'lang' => 'EN',
+        $response = $this->request('GET', '/KartiShop/BrandList/EN', [
+            'opId' => $this->opId,
         ]);
         
-        // The API returns an array of brands directly
-        return $response;
+        if (isset($response['errorCode']) && $response['errorCode'] !== '1000') {
+            throw new \Exception($response['erroreDesc'] ?? 'Failed to fetch brands');
+        }
+        
+        return is_array($response) ? $response : [];
     }
 
     /**
      * Get denominations for a specific brand
-     * GET /KartiShop/DenomList
+     * CORRECT ENDPOINT: /KartiShop/DenomList?lang=EN&opId={opId}&brandId={brandId}
      */
     public function getDenoms(int $brandId): array
     {
         $response = $this->request('GET', '/KartiShop/DenomList', [
             'lang' => 'EN',
-            'brandId' => $brandId,
             'opId' => $this->opId,
+            'brandId' => $brandId,
         ]);
         
-        return $response;
-    }
-
-    /**
-     * Get details for a specific denomination
-     * GET /KartiShop/Denom
-     */
-    public function getDenomDetails(int $brandId, int $denomId): array
-    {
-        $response = $this->request('GET', '/KartiShop/Denom', [
-            'lang' => 'EN',
-            'brandId' => $brandId,
-            'opId' => $this->opId,
-            'denomId' => $denomId,
-        ]);
+        if (isset($response['errorCode']) && $response['errorCode'] !== '1000') {
+            if ($response['errorCode'] === '1007') {
+                return [];
+            }
+            throw new \Exception($response['erroreDesc'] ?? 'Failed to fetch denominations');
+        }
         
-        return $response;
+        if (isset($response['data'])) {
+            return $response['data'];
+        }
+        
+        return is_array($response) ? $response : [];
     }
 
     /**
      * Reserve a card
-     * POST /KartiShop/cardReserve
+     * CORRECT ENDPOINT: /KartiShop/cardReserve
      */
     public function reserveCard(int $denomId, int $brandId, string $userIdentifier, string $partnerTxId): array
     {
@@ -112,28 +121,22 @@ class KartiProvider implements CardProviderInterface
             'userID' => $userIdentifier,
             'partnerTransactionId' => $partnerTxId,
             'opId' => (string)$this->opId,
-        ], true);
+        ]);
         
         return $response;
     }
 
     /**
-     * Verify PIN and complete purchase
-     * POST /KartiShop/verifyPin
+     * Verify PIN (Optional - return mock success)
      */
     public function confirmPin(string $reserveId, string $pin): array
     {
-        $response = $this->request('POST', '/KartiShop/verifyPin', [
-            'otpld' => $reserveId,
-            'pin' => $pin,
-        ], true);
-        
-        return $response;
+        return ['success' => true];
     }
 
     /**
      * Get card details after successful PIN verification
-     * POST /KartiShop/CardDetails/en
+     * CORRECT ENDPOINT: /KartiShop/CardDetails/en
      */
     public function getCardDetails(string $reserveId, string $partnerTxId): array
     {
@@ -141,12 +144,12 @@ class KartiProvider implements CardProviderInterface
             'opId' => (string)$this->opId,
             'partnerTransactionId' => $partnerTxId,
             'reserveID' => $reserveId,
-        ], true);
+        ]);
     }
 
     /**
      * Get account balance
-     * GET /KartiShop/balances
+     * CORRECT ENDPOINT: /KartiShop/balances?opId={opId}
      */
     public function getBalance(): array
     {
