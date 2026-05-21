@@ -24,6 +24,7 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Purchase routes
     Route::get('/purchase/history', [PurchaseController::class, 'history']);
+    Route::get('/customer/history', [PurchaseController::class, 'history']);
     Route::get('/purchase/balance', [PurchaseController::class, 'balance']);
     Route::post('/purchase', [PurchaseController::class, 'purchase']);
     
@@ -35,6 +36,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('admin')->prefix('admin')->group(function () {
         // Dashboard
         Route::get('/dashboard', [DashboardController::class, 'overview']);
+        
+        // Customer Finance Management
+        Route::prefix('finance')->group(function () {
+            Route::get('/customers', [App\Http\Controllers\Admin\CustomerFinanceController::class, 'allCustomers']);
+            Route::get('/customer/{userId}/summary', [App\Http\Controllers\Admin\CustomerFinanceController::class, 'summary']);
+            Route::get('/customer/{userId}/transactions', [App\Http\Controllers\Admin\CustomerFinanceController::class, 'transactions']);
+            Route::post('/customer/{userId}/add-credit', [App\Http\Controllers\Admin\CustomerFinanceController::class, 'addCredit']);
+        });
         
         // Customer management
         Route::get('/customers', [CustomerController::class, 'index']);
