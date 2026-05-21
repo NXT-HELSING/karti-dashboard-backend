@@ -20,6 +20,9 @@ class User extends Authenticatable
         'balance',
         'phone',
         'role',
+        'total_paid',
+        'total_spent',
+        'credit_balance',
     ];
 
     protected $hidden = [
@@ -33,6 +36,9 @@ class User extends Authenticatable
         'is_admin' => 'boolean',
         'is_active' => 'boolean',
         'balance' => 'decimal:2',
+        'total_paid' => 'decimal:2',
+        'total_spent' => 'decimal:2',
+        'credit_balance' => 'decimal:2',
     ];
 
     public function transactions()
