@@ -55,9 +55,9 @@ Route::middleware('auth:sanctum')->group(function () {
         
         // Customer management
         Route::get('/customers', [CustomerController::class, 'index']);
+        Route::delete('/customers/bulk-delete', [CustomerController::class, 'bulkDelete']);
         Route::get('/customers/{id}', [CustomerController::class, 'show']);
         Route::put('/customers/{id}/status', [CustomerController::class, 'updateStatus']);
-        Route::post('/customers/{id}/balance', [CustomerController::class, 'addBalance']);
         
         // Inventory management
         Route::get('/inventory', [InventoryController::class, 'index']);
