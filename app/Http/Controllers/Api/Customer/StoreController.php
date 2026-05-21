@@ -23,8 +23,8 @@ class StoreController extends Controller
     public function getAllProducts(Request $request)
     {
         try {
-            // Cache products for 5 minutes to reduce API calls
-            $products = Cache::remember('all_products_' . md5(json_encode($request->all())), 300, function () use ($request) {
+            // Cache full products list for 5 minutes to prevent redundant API calls
+            $products = Cache::remember('all_karti_products', 300, function () {
                 $brands = Brand::where('is_active', true)
                     ->orderBy('sort_order')
                     ->get();
@@ -42,18 +42,35 @@ class StoreController extends Controller
                         $apiDenoms = $this->kartiProvider->getDenoms($apiBrandId);
                         
                         foreach ($apiDenoms as $denom) {
+                            // Register/update denomination in local DB on-the-fly to get correct local ID
+                            $localDenom = \App\Models\Denomination::updateOrCreate(
+                                [
+                                    'brand_id' => $brand->id,
+                                    'provider_denom_id' => $denom['denomId']
+                                ],
+                                [
+                                    'name' => $denom['denomDesc'],
+                                    'value' => $denom['denomValue'] . ' ' . $denom['denomCurrency'],
+                                    'price' => $denom['denomPrice'],
+                                    'currency' => $denom['denomPriceCurrency'],
+                                    'description' => $denom['denomDesc'],
+                                    'image_url' => $denom['cardBrandImage'] ?? $brand->logo_url,
+                                    'is_available' => true
+                                ]
+                            );
+
                             $allProducts[] = [
-                                'id' => $denom['denomId'],
+                                'id' => $localDenom->id, // Use local database ID
                                 'brand_id' => $brand->id,
                                 'brand_name' => $brand->name,
                                 'brand_logo' => $brand->logo_url,
                                 'brand_code' => $brand->code,
-                                'name' => $denom['denomDesc'],
-                                'value' => $denom['denomValue'] . ' ' . $denom['denomCurrency'],
-                                'price' => (float)$denom['denomPrice'],
-                                'currency' => $denom['denomPriceCurrency'],
-                                'image' => $denom['cardBrandImage'] ?? $brand->logo_url,
-                                'description' => $denom['denomDesc'],
+                                'name' => $localDenom->name,
+                                'value' => $localDenom->value,
+                                'price' => (float)$localDenom->price,
+                                'currency' => $localDenom->currency,
+                                'image' => $localDenom->image_url ?? $brand->logo_url,
+                                'description' => $localDenom->description,
                                 'category' => $this->getCategoryFromBrand($brand->code),
                                 'is_available' => true
                             ];
@@ -107,25 +124,35 @@ class StoreController extends Controller
                     : $query->sortByDesc('name');
             }
             
-            // Get unique brands for filter
-            $brands = $query->unique('brand_code')->values()->map(function ($item) {
-                return [
-                    'code' => $item['brand_code'],
-                    'name' => $item['brand_name'],
-                    'logo' => $item['brand_logo']
-                ];
-            });
+            // Get ALL active brands to populate the filter dropdown correctly
+            $allActiveBrands = Brand::where('is_active', true)
+                ->orderBy('sort_order')
+                ->get()
+                ->map(function ($brand) {
+                    return [
+                        'code' => $brand->code,
+                        'name' => $brand->name,
+                        'logo' => $brand->logo_url
+                    ];
+                })
+                ->values();
             
-            // Get unique categories
-            $categories = $query->unique('category')->pluck('category')->values();
+            // Get unique categories across all active brands
+            $allCategories = Brand::where('is_active', true)
+                ->get()
+                ->map(function ($brand) {
+                    return $this->getCategoryFromBrand($brand->code);
+                })
+                ->unique()
+                ->values();
             
             return response()->json([
                 'success' => true,
                 'data' => [
                     'products' => $query->values(),
                     'filters' => [
-                        'brands' => $brands,
-                        'categories' => $categories
+                        'brands' => $allActiveBrands,
+                        'categories' => $allCategories
                     ],
                     'total' => $query->count()
                 ]
