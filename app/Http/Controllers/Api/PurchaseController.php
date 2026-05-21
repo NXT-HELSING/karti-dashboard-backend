@@ -7,6 +7,7 @@ use App\Models\Transaction;
 use App\Models\CustomerPurchase;
 use App\Models\Denomination;
 use App\Models\BalanceHistory;
+use App\Models\CustomerCredit;
 use App\Services\Providers\KartiProvider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -31,9 +32,19 @@ class PurchaseController extends Controller
             ->orderBy('created_at', 'desc')
             ->paginate(20);
         
+        // Get credit summary
+        $creditSummary = [
+            'balance' => (float)$user->credit_balance,
+            'total_paid' => (float)$user->total_paid,
+            'total_spent' => (float)$user->total_spent
+        ];
+        
         return response()->json([
             'success' => true,
-            'data' => $purchases
+            'data' => [
+                'purchases' => $purchases,
+                'credit_summary' => $creditSummary
+            ]
         ]);
     }
 
@@ -79,10 +90,10 @@ class PurchaseController extends Controller
             ], 400);
         }
 
-        // Check if customer has enough local balance
-        if ($user->balance < $denomination->price) {
+        // Check if customer has enough credit
+        if ($user->credit_balance < $denomination->price) {
             return response()->json([
-                'error' => 'Insufficient local balance. Your balance is ' . $denomination->currency . ' ' . number_format($user->balance, 2) . '. Price is ' . $denomination->currency . ' ' . number_format($denomination->price, 2) . '. Please top up.'
+                'error' => "Insufficient credit. Your balance: \${$user->credit_balance}, Card price: \${$denomination->price}. Please contact admin to add credit."
             ], 400);
         }
 
@@ -162,18 +173,22 @@ class PurchaseController extends Controller
                 'provider_response' => json_encode($cardResponse),
             ]);
             
-            // Deduct local balance
-            $user->decrement('balance', $denomination->price);
-
-            // Record balance history debit
-            BalanceHistory::create([
+            // Deduct from customer's credit balance
+            CustomerCredit::create([
                 'user_id' => $user->id,
-                'amount' => $denomination->price,
-                'currency' => $denomination->currency,
-                'type' => 'debit',
-                'description' => 'Purchased ' . $denomination->brand->name . ' - ' . $denomination->name,
-                'transaction_id' => $transaction->id,
+                'amount' => -$denomination->price,
+                'currency' => 'USD',
+                'type' => 'purchase',
+                'payment_method' => 'wallet',
+                'description' => "Purchased: " . $denomination->brand->name . " - " . $denomination->name,
+                'reference' => $transaction->id,
+                'transaction_id' => $transaction->id
             ]);
+
+            // Update user totals
+            $user->total_spent += $denomination->price;
+            $user->credit_balance -= $denomination->price;
+            $user->save();
 
             // Decrease stock if tracking
             if ($denomination->stock_quantity > 0) {
