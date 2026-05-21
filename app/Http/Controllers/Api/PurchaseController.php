@@ -111,14 +111,15 @@ class PurchaseController extends Controller
             }
             
             if ($usdBalance < $denomination->price) {
+                Log::alert("Karti Master Balance Insufficient! Available: \${$usdBalance} USD, Attempted Purchase: \${$denomination->price} USD.");
                 return response()->json([
-                    'error' => "Temporary provider outage: Insufficient master balance on provider account (Available: \${$usdBalance} USD, Card: \${$denomination->price} USD). Please contact the administrator to recharge."
+                    'error' => "Service temporarily unavailable. Please try again later."
                 ], 400);
             }
         } catch (\Exception $e) {
             Log::error('Failed to pre-check Karti balance: ' . $e->getMessage());
             return response()->json([
-                'error' => 'Failed to verify provider availability: ' . $e->getMessage()
+                'error' => 'Service temporarily unavailable. Please try again later.'
             ], 500);
         }
         
@@ -218,7 +219,7 @@ class PurchaseController extends Controller
             ]);
             
             return response()->json([
-                'error' => 'Purchase failed: ' . $e->getMessage()
+                'error' => 'Purchase failed. Service temporarily unavailable.'
             ], 500);
         }
     }
