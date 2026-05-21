@@ -53,14 +53,14 @@ class PurchaseController extends Controller
     {
         $user = $request->user();
         
-        $balances = BalanceHistory::where('user_id', $user->id)
-            ->select('currency', DB::raw('SUM(CASE WHEN type = "credit" THEN amount ELSE -amount END) as balance'))
-            ->groupBy('currency')
-            ->get();
-        
         return response()->json([
             'success' => true,
-            'data' => $balances
+            'data' => [
+                [
+                    'currency' => 'USD',
+                    'balance' => (float)$user->credit_balance
+                ]
+            ]
         ]);
     }
 
