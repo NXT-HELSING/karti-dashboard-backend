@@ -22,7 +22,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/profile', [AuthController::class, 'profile']);
     Route::put('/user/profile', [AuthController::class, 'updateProfile']);
     
-    // Purchase routes
+    // Customer Store routes
+    Route::prefix('customer')->group(function () {
+        Route::get('/products/all', [\App\Http\Controllers\Api\Customer\StoreController::class, 'getAllProducts']);
+        Route::get('/balance', [\App\Http\Controllers\Api\Customer\StoreController::class, 'getBalance']);
+        Route::post('/purchase', [PurchaseController::class, 'purchase']);
+        Route::get('/history', [PurchaseController::class, 'history']);
+    });
+    
+    // Legacy Purchase routes
     Route::get('/purchase/history', [PurchaseController::class, 'history']);
     Route::get('/customer/history', [PurchaseController::class, 'history']);
     Route::get('/purchase/balance', [PurchaseController::class, 'balance']);
