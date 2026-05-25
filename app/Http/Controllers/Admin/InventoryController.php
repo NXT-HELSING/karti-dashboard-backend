@@ -59,6 +59,17 @@ class InventoryController extends Controller
         ]);
     }
     
+    public function deleteDenomination($id)
+    {
+        $denomination = Denomination::findOrFail($id);
+        $denomination->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Denomination deleted successfully'
+        ]);
+    }
+
     public function syncFromProvider(Request $request)
     {
         $request->validate([

@@ -62,6 +62,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Inventory management
         Route::get('/inventory', [InventoryController::class, 'index']);
         Route::put('/inventory/denominations/{id}', [InventoryController::class, 'updateDenomination']);
+        Route::delete('/inventory/denominations/{id}', [InventoryController::class, 'deleteDenomination']);
         Route::post('/inventory/sync', [InventoryController::class, 'syncFromProvider']);
         
         // Brand management
