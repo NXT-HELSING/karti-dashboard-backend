@@ -32,8 +32,9 @@ class AuthController extends Controller
             'success' => true,
             'data' => [
                 'user' => $user,
-                'token' => $token
-            ]
+                'token' => $token,
+                'is_admin' => false,
+            ],
         ]);
     }
     
@@ -73,9 +74,21 @@ class AuthController extends Controller
     
     public function profile(Request $request)
     {
+        $user = $request->user();
+
+        if (!$user->is_active) {
+            $user->currentAccessToken()?->delete();
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Your account has been deactivated.',
+            ], 403);
+        }
+
         return response()->json([
             'success' => true,
-            'data' => $request->user()
+            'data' => $user,
+            'is_admin' => (bool) $user->is_admin,
         ]);
     }
     

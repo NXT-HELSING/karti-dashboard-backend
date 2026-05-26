@@ -18,7 +18,8 @@ Route::post('/login', [AuthController::class, 'login']);
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
     
-    // Customer routes
+    // Auth (Sanctum bearer token)
+    Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user/profile', [AuthController::class, 'profile']);
     Route::put('/user/profile', [AuthController::class, 'updateProfile']);
     
