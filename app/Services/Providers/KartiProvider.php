@@ -16,11 +16,40 @@ class KartiProvider implements CardProviderInterface
 
     public function __construct()
     {
-        $this->baseUrl = config('services.karti.base_url', 'https://stg.kartishop.xyz');
-        $this->username = config('services.karti.username');
-        $this->password = config('services.karti.password');
+        $this->baseUrl = rtrim(config('services.karti.base_url', 'https://stg.kartishop.xyz'), '/');
         $this->opId = config('services.karti.op_id');
         $this->partnerId = config('services.karti.partner_id');
+
+        [$this->username, $this->password] = $this->resolveCredentials();
+    }
+
+    /**
+     * Credentials from KARTI_USERNAME/KARTI_PASSWORD or KARTI_BASIC_AUTH (user:pass or base64).
+     */
+    protected function resolveCredentials(): array
+    {
+        $username = config('services.karti.username');
+        $password = config('services.karti.password');
+
+        if ($username && $password) {
+            return [$username, $password];
+        }
+
+        $basicAuth = config('services.karti.basic_auth');
+        if (!$basicAuth) {
+            return [$username, $password];
+        }
+
+        $decoded = base64_decode($basicAuth, true);
+        $pair = ($decoded !== false && str_contains($decoded, ':'))
+            ? $decoded
+            : $basicAuth;
+
+        if (str_contains($pair, ':')) {
+            return explode(':', $pair, 2);
+        }
+
+        return [$username, $password];
     }
 
     /**
@@ -78,8 +107,29 @@ class KartiProvider implements CardProviderInterface
         if (isset($response['errorCode']) && $response['errorCode'] !== '1000') {
             throw new \Exception($response['erroreDesc'] ?? 'Failed to fetch brands');
         }
-        
-        return is_array($response) ? $response : [];
+
+        return $this->normalizeBrandList($response);
+    }
+
+    /**
+     * Karti may return a flat list or { data: [...] } — normalize to brand rows.
+     */
+    protected function normalizeBrandList(array $response): array
+    {
+        if (isset($response[0]) && is_array($response[0])) {
+            return $response;
+        }
+
+        foreach (['data', 'brandList', 'brands', 'BrandList'] as $key) {
+            if (!empty($response[$key]) && is_array($response[$key])) {
+                return array_values($response[$key]);
+            }
+        }
+
+        return array_values(array_filter(
+            $response,
+            fn ($row) => is_array($row) && (isset($row['brandId']) || isset($row['id']))
+        ));
     }
 
     /**

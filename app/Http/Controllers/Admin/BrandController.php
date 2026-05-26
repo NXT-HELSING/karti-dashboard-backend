@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Brand;
+use App\Services\BrandSyncService;
 use App\Services\Providers\KartiProvider;
 use Illuminate\Http\Request;
 
@@ -11,9 +12,12 @@ class BrandController extends Controller
 {
     protected $kartiProvider;
 
-    public function __construct(KartiProvider $kartiProvider)
+    protected $brandSync;
+
+    public function __construct(KartiProvider $kartiProvider, BrandSyncService $brandSync)
     {
         $this->kartiProvider = $kartiProvider;
+        $this->brandSync = $brandSync;
     }
 
     /**
@@ -37,79 +41,56 @@ class BrandController extends Controller
     {
         try {
             $kartiBrands = $this->kartiProvider->getBrands();
-            
+
             if (empty($kartiBrands)) {
                 return response()->json([
                     'success' => false,
-                    'error' => 'No brands found from Karti API'
+                    'error' => 'No brands found from Karti API',
                 ], 404);
             }
-            
+
             $synced = 0;
             $updated = 0;
-            
-            foreach ($kartiBrands as $kartiBrand) {
-                $brandId = $kartiBrand['brandId'] ?? $kartiBrand['id'] ?? null;
-                if (!$brandId) continue;
+            $skipped = 0;
 
-                $brandName = $kartiBrand['brandName'] ?? $kartiBrand['name'] ?? 'Unknown';
-                
-                // Clean and generate unique code from name
-                $cleanCode = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $brandName), 0, 10));
-                if (empty($cleanCode)) {
-                    $cleanCode = 'BRAND' . $brandId;
+            foreach ($kartiBrands as $kartiBrand) {
+                if (!is_array($kartiBrand)) {
+                    $skipped++;
+                    continue;
                 }
 
-                $brandData = [
-                    'name' => $brandName,
-                    'code' => $cleanCode,
-                    'description' => $kartiBrand['brandDescription'] ?? $kartiBrand['description'] ?? null,
-                    'logo_url' => $kartiBrand['brandLogo'] ?? $kartiBrand['logo'] ?? null,
-                    'is_active' => true,
-                ];
-                
-                $apiConfig = ['brand_id' => (int)$brandId];
-                
-                // Find existing brand by Karti brand ID
-                $brand = Brand::where('api_config->brand_id', $apiConfig['brand_id'])->first();
-                
-                if (!$brand) {
-                    // Check if code exists to avoid duplicates
-                    $codeExists = Brand::where('code', $brandData['code'])->exists();
-                    if ($codeExists) {
-                        $brandData['code'] = $brandData['code'] . $brandId;
-                    }
+                if (empty($kartiBrand['brandId'] ?? $kartiBrand['id'] ?? null)) {
+                    $skipped++;
+                    continue;
+                }
 
-                    Brand::create(array_merge($brandData, [
-                        'api_config' => $apiConfig,
-                        'sort_order' => Brand::max('sort_order') + 1
-                    ]));
+                $result = $this->brandSync->upsertFromKarti($kartiBrand);
+                if ($result === 'created') {
                     $synced++;
                 } else {
-                    $brand->update($brandData);
                     $updated++;
                 }
             }
-            
+
             return response()->json([
                 'success' => true,
                 'message' => "Synced $synced new brands, updated $updated existing brands",
                 'data' => [
                     'synced' => $synced,
                     'updated' => $updated,
-                    'total' => count($kartiBrands)
-                ]
+                    'skipped' => $skipped,
+                    'total' => count($kartiBrands),
+                ],
             ]);
-            
         } catch (\Exception $e) {
             \Log::error('Failed to sync brands from Karti', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return response()->json([
                 'success' => false,
-                'error' => 'Failed to sync brands: ' . $e->getMessage()
+                'error' => 'Failed to sync brands: ' . $e->getMessage(),
             ], 500);
         }
     }
